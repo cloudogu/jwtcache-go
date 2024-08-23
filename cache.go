@@ -1,7 +1,7 @@
 package jwt
 
 import (
-	"github.com/lestrrat-go/jwx/jwt"
+	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/sirupsen/logrus"
 
 	"context"
@@ -134,9 +134,9 @@ func RejectUnparsable(rejectUnparsable bool) Option {
 
 // EnsureToken returns either the cached token if existing and still valid,
 // or calls the internal token function to fetch a new token. If an error
-// occurs in the latter case, it is passed trough.
+// occurs in the latter case, it is passed through.
 func (jwtCache *Cache) EnsureToken(ctx context.Context) (string, error) {
-	// Do we have a cached jwt, and its still valid?
+	// Do we have a cached jwt, and it's still valid?
 	if jwtCache.jwt != "" && time.Now().Before(jwtCache.validity) {
 		return jwtCache.jwt, nil
 	}
@@ -185,4 +185,10 @@ func (jwtCache *Cache) EnsureToken(ctx context.Context) (string, error) {
 	}
 
 	return token, nil
+}
+
+// DropToken deletes the token from the cache.
+// On next call of EnsureToken, a new token will be requested.
+func (jwtCache *Cache) DropToken() {
+	jwtCache.jwt = ""
 }

@@ -1,16 +1,15 @@
 package jwt
 
 import (
-	"github.com/lestrrat-go/jwx/jwa"
-	"github.com/lestrrat-go/jwx/jwt"
-	"github.com/sirupsen/logrus"
-
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/lestrrat-go/jwx/v2/jwa"
+	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/sirupsen/logrus"
 	"io"
 	"testing"
 	"time"
@@ -100,6 +99,7 @@ func Test_CacheMap_EnsureToken_TokenError(t *testing.T) {
 		MapTokenFunction(func(ctx context.Context, key string) (s string, e error) {
 			return "", expectedErr
 		}),
+		MapParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -126,6 +126,7 @@ func Test_CacheMap_EnsureToken_Cache(t *testing.T) {
 	cache := NewCacheMap(
 		MapLogger(logger),
 		MapTokenFunction(getMapTokenFunction()),
+		MapParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -174,6 +175,7 @@ func Test_CacheMap_EnsureToken_Cache_Invalidation(t *testing.T) {
 	cache := NewCacheMap(
 		MapLogger(logger),
 		MapTokenFunction(getMapExpiredTokenFunction()),
+		MapParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -204,6 +206,7 @@ func Test_CacheMap_EnsureToken_NoExp(t *testing.T) {
 	cache := NewCacheMap(
 		MapLogger(logger),
 		MapTokenFunction(getMapTokenFunctionWithoutExp()),
+		MapParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -234,6 +237,7 @@ func Test_CacheMap_EnsureToken_NoIat(t *testing.T) {
 	cache := NewCacheMap(
 		MapLogger(logger),
 		MapTokenFunction(getMapTokenFunctionWithoutIat()),
+		MapParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -268,6 +272,7 @@ func Test_CacheMap_EnsureToken_BrokenParser(t *testing.T) {
 			counter++
 			return fmt.Sprintf("not-a-valid-token-%d", counter), nil
 		}),
+		MapParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -302,6 +307,7 @@ func Test_CacheMap_EnsureToken_BrokenParser_Reject(t *testing.T) {
 			counter++
 			return fmt.Sprintf("not-a-valid-token-%d", counter), nil
 		}),
+		MapParseOptions(jwt.WithVerify(false)),
 		MapRejectUnparsable(true),
 	)
 
@@ -334,14 +340,14 @@ func Test_MapCache_EnsureToken_Signed_JWT(t *testing.T) {
 	cache := NewCacheMap(
 		MapLogger(logger),
 		MapTokenFunction(func(ctx context.Context, key string) (s string, e error) {
-			signedToken, err := jwt.Sign(jwt.New(), jwa.ES512, ecdsaPrivateKey)
+			signedToken, err := jwt.Sign(jwt.New(), jwt.WithKey(jwa.ES512, ecdsaPrivateKey))
 			if err != nil {
 				return "", err
 			}
 
 			return string(signedToken), nil
 		}),
-		MapParseOptions(jwt.WithVerify(jwa.ES512, ecdsaPublicKey)),
+		MapParseOptions(jwt.WithKey(jwa.ES512, ecdsaPublicKey)),
 		// Set, so that verification fails if we provide a wrong JWT in the
 		MapRejectUnparsable(true),
 	)
@@ -356,5 +362,35 @@ func Test_MapCache_EnsureToken_Signed_JWT(t *testing.T) {
 
 	if token == "" {
 		t.Error("expected token, but got none")
+	}
+}
+
+func Test_CacheMap_DropToken(t *testing.T) {
+	logger := logrus.New()
+	logger.Out = io.Discard
+
+	// given
+	cache := NewCacheMap(
+		MapLogger(logger),
+		MapTokenFunction(getMapTokenFunction()),
+		MapParseOptions(jwt.WithVerify(false)),
+	)
+
+	// when
+	firstToken, firstErr := cache.EnsureToken(context.Background(), "some-key")
+	cache.DropToken("some-key")
+	secondToken, secondErr := cache.EnsureToken(context.Background(), "some-key")
+
+	// then
+	if firstErr != nil {
+		t.Errorf("error while first token function invocation: %s", firstErr)
+	}
+
+	if secondErr != nil {
+		t.Errorf("error while second token function invocation: %s", secondErr)
+	}
+
+	if firstToken == secondToken {
+		t.Errorf("token was cached, but should have been dropped")
 	}
 }

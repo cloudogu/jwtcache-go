@@ -1,8 +1,8 @@
 package jwt
 
 import (
-	"github.com/lestrrat-go/jwx/jwa"
-	"github.com/lestrrat-go/jwx/jwt"
+	"github.com/lestrrat-go/jwx/v2/jwa"
+	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/sirupsen/logrus"
 
 	"context"
@@ -36,7 +36,7 @@ func getJwt(claims map[string]interface{}) (string, error) {
 		}
 	}
 
-	signedT, err := jwt.Sign(token, jwa.HS512, []byte("supersecretpassphrase"))
+	signedT, err := jwt.Sign(token, jwt.WithKey(jwa.HS512, []byte("supersecretpassphrase")))
 	if err != nil {
 		return "", err
 	}
@@ -153,6 +153,7 @@ func Test_Cache_EnsureToken_Cache(t *testing.T) {
 	cache := NewCache(
 		Logger(logger),
 		TokenFunction(getTokenFunction()),
+		ParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -183,6 +184,7 @@ func Test_Cache_EnsureToken_Cache_Invalidation(t *testing.T) {
 	cache := NewCache(
 		Logger(logger),
 		TokenFunction(getExpiredTokenFunction()),
+		ParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -213,6 +215,7 @@ func Test_Cache_EnsureToken_NoExp(t *testing.T) {
 	cache := NewCache(
 		Logger(logger),
 		TokenFunction(getTokenFunctionWithoutExp()),
+		ParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -243,6 +246,7 @@ func Test_Cache_EnsureToken_NoIat(t *testing.T) {
 	cache := NewCache(
 		Logger(logger),
 		TokenFunction(getTokenFunctionWithoutIat()),
+		ParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -277,6 +281,7 @@ func Test_Cache_EnsureToken_BrokenParser(t *testing.T) {
 			counter++
 			return fmt.Sprintf("not-a-valid-token-%d", counter), nil
 		}),
+		ParseOptions(jwt.WithVerify(false)),
 	)
 
 	// when
@@ -311,6 +316,7 @@ func Test_Cache_EnsureToken_BrokenParser_Reject(t *testing.T) {
 			counter++
 			return fmt.Sprintf("not-a-valid-token-%d", counter), nil
 		}),
+		ParseOptions(jwt.WithVerify(false)),
 		RejectUnparsable(true),
 	)
 
@@ -343,14 +349,14 @@ func Test_Cache_EnsureToken_Signed_JWT(t *testing.T) {
 	cache := NewCache(
 		Logger(logger),
 		TokenFunction(func(ctx context.Context) (s string, e error) {
-			signedToken, err := jwt.Sign(jwt.New(), jwa.ES512, ecdsaPrivateKey)
+			signedToken, err := jwt.Sign(jwt.New(), jwt.WithKey(jwa.ES512, ecdsaPrivateKey))
 			if err != nil {
 				return "", err
 			}
 
 			return string(signedToken), nil
 		}),
-		ParseOptions(jwt.WithVerify(jwa.ES512, ecdsaPublicKey)),
+		ParseOptions(jwt.WithKey(jwa.ES512, ecdsaPublicKey)),
 		// Set, so that verification fails if we provide a wrong JWT in the
 		RejectUnparsable(true),
 	)
@@ -365,5 +371,35 @@ func Test_Cache_EnsureToken_Signed_JWT(t *testing.T) {
 
 	if token == "" {
 		t.Error("expected token, but got none")
+	}
+}
+
+func Test_Cache_DropToken(t *testing.T) {
+	logger := logrus.New()
+	logger.Out = io.Discard
+
+	// given
+	cache := NewCache(
+		Logger(logger),
+		TokenFunction(getTokenFunction()),
+		ParseOptions(jwt.WithVerify(false)),
+	)
+
+	// when
+	firstToken, firstErr := cache.EnsureToken(context.Background())
+	cache.DropToken()
+	secondToken, secondErr := cache.EnsureToken(context.Background())
+
+	// then
+	if firstErr != nil {
+		t.Errorf("error while first token function invocation: %s", firstErr)
+	}
+
+	if secondErr != nil {
+		t.Errorf("error while second token function invocation: %s", secondErr)
+	}
+
+	if firstToken == secondToken {
+		t.Errorf("token was cached, but should have been dropped")
 	}
 }

@@ -1,7 +1,7 @@
 package jwt
 
 import (
-	"github.com/lestrrat-go/jwx/jwt"
+	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/sirupsen/logrus"
 
 	"context"
@@ -160,4 +160,26 @@ func (cacheMap *CacheMap) EnsureToken(ctx context.Context, key string) (string, 
 	defer readLock.Unlock()
 
 	return cache.EnsureToken(ctx)
+}
+
+// DropToken deletes the specified token from the cache.
+// On next call of EnsureToken with this key, a new token will be requested.
+func (cacheMap *CacheMap) DropToken(key string) {
+	readLock := cacheMap.lock.RLocker()
+	writeLock := cacheMap.lock
+
+	readLock.Lock()
+	defer readLock.Unlock()
+
+	_, exists := cacheMap.jwtMap[key]
+	if exists {
+		// Trade read lock for write lock
+		readLock.Unlock()
+		writeLock.Lock()
+		delete(cacheMap.jwtMap, key)
+
+		// Trade write lock for read lock
+		writeLock.Unlock()
+		readLock.Lock()
+	}
 }
